@@ -14,9 +14,9 @@ interface DifficultyConfig {
 }
 
 const difficulties: Record<string, DifficultyConfig> = {
-  easy: { tumblers: 3, moves: 5, speed: 1000 },
-  medium: { tumblers: 4, moves: 7, speed: 800 },
-  hard: { tumblers: 5, moves: 10, speed: 600 },
+  easy: { tumblers: 3, moves: 5, speed: 600 },
+  medium: { tumblers: 4, moves: 7, speed: 450 },
+  hard: { tumblers: 5, moves: 10, speed: 300 },
 };
 
 type GamePhase = "reveal" | "shuffle" | "select" | "result";
