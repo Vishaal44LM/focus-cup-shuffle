@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import Tumbler from "@/components/Tumbler";
 import ResultModal from "@/components/ResultModal";
 import { toast } from "sonner";
@@ -13,12 +14,17 @@ interface DifficultyConfig {
 }
 
 const difficulties: Record<string, DifficultyConfig> = {
-  easy: { tumblers: 3, moves: 5, speed: 800 },
-  medium: { tumblers: 4, moves: 7, speed: 600 },
-  hard: { tumblers: 5, moves: 10, speed: 400 },
+  easy: { tumblers: 3, moves: 5, speed: 1000 },
+  medium: { tumblers: 4, moves: 7, speed: 800 },
+  hard: { tumblers: 5, moves: 10, speed: 600 },
 };
 
 type GamePhase = "reveal" | "shuffle" | "select" | "result";
+
+interface TumblerData {
+  id: number;
+  position: number;
+}
 
 const Game = () => {
   const [searchParams] = useSearchParams();
@@ -26,25 +32,28 @@ const Game = () => {
   const difficulty = searchParams.get("difficulty") || "easy";
   const config = difficulties[difficulty];
 
-  const [tumblers, setTumblers] = useState<number[]>([]);
-  const [ballPosition, setBallPosition] = useState<number>(0);
+  const [tumblers, setTumblers] = useState<TumblerData[]>([]);
+  const [ballTumblerId, setBallTumblerId] = useState<number>(0);
   const [phase, setPhase] = useState<GamePhase>("reveal");
-  const [selectedTumbler, setSelectedTumbler] = useState<number | null>(null);
+  const [selectedTumblerId, setSelectedTumblerId] = useState<number | null>(null);
   const [isCorrect, setIsCorrect] = useState<boolean>(false);
   const [score, setScore] = useState({ correct: 0, total: 0 });
   const [streak, setStreak] = useState(0);
 
   // Initialize game
   const initGame = useCallback(() => {
-    const newTumblers = Array.from({ length: config.tumblers }, (_, i) => i);
-    const randomBallPos = Math.floor(Math.random() * config.tumblers);
+    const newTumblers: TumblerData[] = Array.from({ length: config.tumblers }, (_, i) => ({
+      id: i,
+      position: i,
+    }));
+    const randomBallId = Math.floor(Math.random() * config.tumblers);
     
     setTumblers(newTumblers);
-    setBallPosition(randomBallPos);
-    setSelectedTumbler(null);
+    setBallTumblerId(randomBallId);
+    setSelectedTumblerId(null);
     setPhase("reveal");
     
-    toast.info("Watch the highlighted tumbler!");
+    toast.info("Watch the highlighted cup!");
   }, [config.tumblers]);
 
   useEffect(() => {
@@ -54,7 +63,6 @@ const Game = () => {
   // Shuffle animation
   const performShuffle = useCallback(() => {
     setPhase("shuffle");
-    let currentPos = ballPosition;
     let moveCount = 0;
 
     const shuffleInterval = setInterval(() => {
@@ -66,30 +74,25 @@ const Game = () => {
       }
 
       // Randomly swap two positions
-      const pos1 = Math.floor(Math.random() * config.tumblers);
-      let pos2 = Math.floor(Math.random() * config.tumblers);
-      while (pos2 === pos1) {
-        pos2 = Math.floor(Math.random() * config.tumblers);
-      }
-
       setTumblers((prev) => {
         const newTumblers = [...prev];
-        [newTumblers[pos1], newTumblers[pos2]] = [newTumblers[pos2], newTumblers[pos1]];
+        const pos1 = Math.floor(Math.random() * newTumblers.length);
+        let pos2 = Math.floor(Math.random() * newTumblers.length);
+        
+        while (pos2 === pos1 && newTumblers.length > 1) {
+          pos2 = Math.floor(Math.random() * newTumblers.length);
+        }
+
+        // Swap positions
+        [newTumblers[pos1].position, newTumblers[pos2].position] = 
+        [newTumblers[pos2].position, newTumblers[pos1].position];
+
         return newTumblers;
       });
 
-      // Update ball position if it was moved
-      if (currentPos === pos1) {
-        currentPos = pos2;
-        setBallPosition(pos2);
-      } else if (currentPos === pos2) {
-        currentPos = pos1;
-        setBallPosition(pos1);
-      }
-
       moveCount++;
     }, config.speed);
-  }, [ballPosition, config.moves, config.speed, config.tumblers]);
+  }, [config.moves, config.speed]);
 
   // Start shuffle after reveal
   useEffect(() => {
@@ -102,11 +105,11 @@ const Game = () => {
   }, [phase, performShuffle]);
 
   // Handle tumbler selection
-  const handleTumblerClick = (index: number) => {
+  const handleTumblerClick = (tumblerId: number) => {
     if (phase !== "select") return;
 
-    setSelectedTumbler(index);
-    const correct = index === ballPosition;
+    setSelectedTumblerId(tumblerId);
+    const correct = tumblerId === ballTumblerId;
     setIsCorrect(correct);
     setPhase("result");
 
@@ -117,8 +120,10 @@ const Game = () => {
 
     if (correct) {
       setStreak((prev) => prev + 1);
+      toast.success("Correct! 🎯");
     } else {
       setStreak(0);
+      toast.error("Not quite! Try again!");
     }
   };
 
@@ -131,6 +136,9 @@ const Game = () => {
   };
 
   const successRate = score.total > 0 ? Math.round((score.correct / score.total) * 100) : 0;
+
+  // Sort tumblers by position for rendering
+  const sortedTumblers = [...tumblers].sort((a, b) => a.position - b.position);
 
   return (
     <div className="min-h-screen bg-background p-4">
@@ -151,14 +159,14 @@ const Game = () => {
               {difficulty.charAt(0).toUpperCase() + difficulty.slice(1)} Mode
             </h1>
             <p className="text-sm text-muted-foreground capitalize">
-              {phase === "reveal" && "Watch the ball..."}
-              {phase === "shuffle" && "Follow the tumbler!"}
-              {phase === "select" && "Make your choice"}
-              {phase === "result" && (isCorrect ? "Correct!" : "Try again!")}
+              {phase === "reveal" && "👀 Watch the ball..."}
+              {phase === "shuffle" && "🔄 Follow the cup!"}
+              {phase === "select" && "🎯 Make your choice"}
+              {phase === "result" && (isCorrect ? "✅ Correct!" : "❌ Try again!")}
             </p>
           </div>
 
-          <div className="w-32" /> {/* Spacer for alignment */}
+          <div className="w-32" />
         </div>
 
         {/* Stats */}
@@ -179,28 +187,52 @@ const Game = () => {
       </div>
 
       {/* Game Area */}
-      <div className="max-w-4xl mx-auto">
-        <div className="relative min-h-[400px] flex items-center justify-center">
-          <div 
-            className="flex items-end justify-center gap-8"
-            style={{
-              gridTemplateColumns: `repeat(${config.tumblers}, 1fr)`,
-            }}
-          >
-            {tumblers.map((_, index) => (
-              <Tumbler
-                key={index}
-                index={index}
-                hasBall={index === ballPosition}
-                isHighlighted={phase === "reveal" && index === ballPosition}
-                isSelected={selectedTumbler === index}
-                isRevealed={phase === "result"}
-                phase={phase}
-                onClick={() => handleTumblerClick(index)}
-              />
-            ))}
+      <div className="max-w-5xl mx-auto">
+        <div className="relative min-h-[500px] flex items-end justify-center pb-16">
+          <div className="relative flex items-end justify-center gap-6">
+            <AnimatePresence>
+              {sortedTumblers.map((tumbler) => (
+                <motion.div
+                  key={tumbler.id}
+                  layout
+                  initial={{ opacity: 0, scale: 0 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{
+                    layout: { duration: 0.5, ease: "easeInOut" },
+                    opacity: { duration: 0.3 },
+                    scale: { duration: 0.3 },
+                  }}
+                  style={{
+                    position: "relative",
+                  }}
+                >
+                  <Tumbler
+                    index={tumbler.id}
+                    hasBall={tumbler.id === ballTumblerId}
+                    isHighlighted={phase === "reveal" && tumbler.id === ballTumblerId}
+                    isSelected={selectedTumblerId === tumbler.id}
+                    isRevealed={phase === "result"}
+                    phase={phase}
+                    onClick={() => handleTumblerClick(tumbler.id)}
+                  />
+                </motion.div>
+              ))}
+            </AnimatePresence>
           </div>
         </div>
+
+        {/* Instructions during shuffle */}
+        {phase === "shuffle" && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-center mt-8"
+          >
+            <p className="text-xl text-accent font-semibold animate-pulse">
+              Keep your eyes on the glowing cup! 👁️
+            </p>
+          </motion.div>
+        )}
       </div>
 
       {/* Result Modal */}
